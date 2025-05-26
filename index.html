@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bomberman Dynablaster – Single Player</title>
+  <style>
+    /* ===== RESET & GLOBAL STYLES ===== */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: radial-gradient(circle, #001133, #000);
+      color: #eee;
+      font-family: 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      position: relative;
+      padding: 10px;
+    }
+    /* ===== HUD ===== */
+    #hud {
+      margin: 10px;
+      text-align: center;
+    }
+    #hud span {
+      margin: 0 10px;
+      font-size: 1.2em;
+      text-shadow: 0 0 5px #00ffff;
+    }
+    /* ===== Canvas Container ===== */
+    #gameContainer {
+      position: relative;
+      border: 3px solid #00ffff;
+      background: #000;
+    }
+    canvas {
+      background-color: #000;
+      image-rendering: pixelated;
+      display: block;
+    }
+    /* ===== Start Screen Overlay ===== */
+    #startScreen {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.85);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 2;
+    }
+    #startScreen h1 {
+      font-size: 2.5em;
+      margin-bottom: 20px;
+      text-shadow: 0 0 10px #ff00ff;
+    }
+    #startButton {
+      padding: 10px 20px;
+      font-size: 1.2em;
+      cursor: pointer;
+      background: #28a745;
+      border: none;
+      border-radius: 5px;
+      color: #fff;
+      transition: background 0.3s;
+    }
+    #startButton:hover {
+      background: #218838;
+    }
+    /* ===== INSTRUCTIONS ===== */
+    #instructions {
+      margin-top: 10px;
+      text-align: center;
+    }
+    /* ===== RESPONSIVE ===== */
+    @media (max-width: 600px) {
+      #hud span { font-size: 1em; }
+      #startScreen h1 { font-size: 2em; }
+      #startButton { padding: 8px 16px; font-size: 1em; }
+    }
+  </style>
+</head>
+<body>
+  <!-- HUD: Lives, Score, Level -->
+  <div id="hud">
+    <span id="livesDisplay">Lives: 3</span>
+    <span id="scoreDisplay">Score: 0</span>
+    <span id="levelDisplay">Level: 1</span>
+  </div>
+
+  <!-- Game Container: Contains the Canvas and the Start Screen Overlay -->
+  <div id="gameContainer">
+    <canvas id="gameCanvas" width="480" height="416"></canvas>
+    <!-- Start Screen Overlay -->
+    <div id="startScreen">
+      <h1>Bomberman Dynablaster</h1>
+      <button id="startButton">Start Game</button>
+    </div>
+  </div>
+  
+  <!-- Instructions -->
+  <div id="instructions">
+    <p><strong>Controls:</strong> Use the Arrow keys to move, Space to plant bombs.</p>
+  </div>
+
+  <!-- ===== JAVASCRIPT ===== -->
+  <script>
+    /*********************
+     * CONFIGURATION & GLOBALS
+     *********************/
+    const TILE_SIZE = 32;
+    const COLS = 15;
+    const ROWS = 13;
+    let levelMap = [];
+    function generateLevel() {
+      levelMap = [];
+      for (let r = 0; r < ROWS; r++) {
+        let row = [];
+        for (let c = 0; c < COLS; c++) {
+          if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1) {
+            row.push(1); // indestructible wall
+          } else if (r % 2 === 0 && c % 2 === 0) {
+            row.push(1);
+          } else {
+            // Reserve a clear starting area (top-left 3x3)
+            if (r < 3 && c < 3) row.push(0);
+            else row.push(Math.random() < 0.8 ? 2 : 0); // 80% destructible blocks
+          }
+        }
+        levelMap.push(row);
+      }
+    }
+    
+    // Player, bombs, enemies, etc.
+    const player = {
+      gridX: 1,
+      gridY: 1,
+      x: 1 * TILE_SIZE,
+      y: 1 * TILE_SIZE,
+      size: TILE_SIZE - 4,
+      speed: 2, // Movement speed in pixels per frame
+      lives: 3,
+      bombPower: 2,
+      maxBombs: 1,
+      bombsPlaced: 0,
+      invulnerable: false
+    };
+    let bombs = [];
+    let explosions = [];
+    let enemies = [];
+    let score = 0;
+    let level = 1;
+    
+    // Spawn simple enemies at fixed positions.
+    function spawnEnemies() {
+      enemies = [];
+      enemies.push({ gridX: COLS - 2, gridY: ROWS - 2, x: (COLS - 2) * TILE_SIZE, y: (ROWS - 2) * TILE_SIZE, moveTimer: 0 });
+      enemies.push({ gridX: COLS - 3, gridY: 1, x: (COLS - 3) * TILE_SIZE, y: 1 * TILE_SIZE, moveTimer: 0 });
+    }
+    
+    // Update HUD information.
+    function updateHUD() {
+      document.getElementById("livesDisplay").textContent = "Lives: " + player.lives;
+      document.getElementById("scoreDisplay").textContent = "Score: " + score;
+      document.getElementById("levelDisplay").textContent = "Level: " + level;
+    }
+    
+    /*********************
+     * CANVAS SETUP
+     *********************/
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    
+    /*********************
+     * INPUT HANDLING
+     *********************/
+    const keys = {};
+    window.addEventListener("keydown", (e) => { keys[e.key] = true; });
+    window.addEventListener("keyup", (e) => { keys[e.key] = false; });
+    
+    /*********************
+     * GAME LOGIC FUNCTIONS
+     *********************/
+    function updatePlayer(dt) {
+      let dx = 0, dy = 0;
+      if (keys["ArrowUp"]) dy = -player.speed;
+      if (keys["ArrowDown"]) dy = player.speed;
+      if (keys["ArrowLeft"]) dx = -player.speed;
+      if (keys["ArrowRight"]) dx = player.speed;
+      let newX = player.x + dx;
+      let newY = player.y + dy;
+      let newCol = Math.floor((newX + TILE_SIZE/2) / TILE_SIZE);
+      let newRow = Math.floor((newY + TILE_SIZE/2) / TILE_SIZE);
+      // Move only if target cell is empty
+      if (levelMap[newRow] && levelMap[newRow][newCol] === 0) {
+        player.x = newX;
+        player.y = newY;
+        player.gridX = newCol;
+        player.gridY = newRow;
+      }
+    }
+    
+    window.addEventListener("keydown", function(e) {
+      if (e.key === " ") {
+        if (player.bombsPlaced < player.maxBombs && !bombs.find(b => b.gridX === player.gridX && b.gridY === player.gridY)) {
+          bombs.push({
+            gridX: player.gridX,
+            gridY: player.gridY,
+            x: player.gridX * TILE_SIZE,
+            y: player.gridY * TILE_SIZE,
+            timer: 2000, // 2 seconds delay
+            exploded: false
+          });
+          player.bombsPlaced++;
+        }
+        // Prevent continuous bomb placement
+        keys[" "] = false;
+      }
+    });
+    
+    function triggerExplosion(bomb) {
+      let cells = [{ x: bomb.gridX, y: bomb.gridY }];
+      const dirs = [{dx:1,dy:0}, {dx:-1,dy:0}, {dx:0,dy:1}, {dx:0,dy:-1}];
+      for (let d of dirs) {
+        for (let i = 1; i <= player.bombPower; i++) {
+          let cx = bomb.gridX + d.dx * i;
+          let cy = bomb.gridY + d.dy * i;
+          if (levelMap[cy] && levelMap[cy][cx] === 1) break;
+          cells.push({ x: cx, y: cy });
+          if (levelMap[cy] && levelMap[cy][cx] === 2) break;
+        }
+      }
+      explosions.push({ cells: cells, timer: 500 });
+      cells.forEach(cell => {
+        if (levelMap[cell.y] && levelMap[cell.y][cell.x] === 2) {
+          levelMap[cell.y][cell.x] = 0;
+          score += 10;
+        }
+      });
+    }
+    
+    function isCellExploding(x, y) {
+      for (let exp of explosions) {
+        for (let cell of exp.cells) {
+          if (cell.x === x && cell.y === y) return true;
+        }
+      }
+      return false;
+    }
+    
+    function updateBombs(dt) {
+      for (let i = bombs.length - 1; i >= 0; i--) {
+        bombs[i].timer -= dt;
+        if (bombs[i].timer <= 0 && !bombs[i].exploded) {
+          triggerExplosion(bombs[i]);
+          bombs[i].exploded = true;
+          player.bombsPlaced--;
+          bombs.splice(i, 1);
+        }
+      }
+    }
+    
+    function updateExplosions(dt) {
+      for (let i = explosions.length - 1; i >= 0; i--) {
+        explosions[i].timer -= dt;
+        if (explosions[i].timer <= 0) {
+          explosions.splice(i, 1);
+        }
+      }
+    }
+    
+    function updateEnemies(dt) {
+      enemies.forEach(enemy => {
+        enemy.moveTimer += dt;
+        if (enemy.moveTimer > 1000) {
+          const dirs = [{dx:0,dy:-1}, {dx:0,dy:1}, {dx:-1,dy:0}, {dx:1,dy:0}];
+          let possible = dirs.filter(dir => (levelMap[enemy.gridY + dir.dy] && levelMap[enemy.gridY + dir.dy][enemy.gridX + dir.dx] === 0));
+          if (possible.length > 0) {
+            let move = possible[Math.floor(Math.random() * possible.length)];
+            enemy.gridX += move.dx;
+            enemy.gridY += move.dy;
+            enemy.x = enemy.gridX * TILE_SIZE;
+            enemy.y = enemy.gridY * TILE_SIZE;
+          }
+          enemy.moveTimer = 0;
+        }
+      });
+    }
+    
+    function update(dt) {
+      updatePlayer(dt);
+      updateBombs(dt);
+      updateExplosions(dt);
+      updateEnemies(dt);
+      
+      // Check for explosion collisions with player.
+      if (isCellExploding(player.gridX, player.gridY) && !player.invulnerable) {
+        player.lives--;
+        updateHUD();
+        player.invulnerable = true;
+        setTimeout(() => { player.invulnerable = false; }, 1000);
+        // Reset player to starting cell.
+        player.x = TILE_SIZE;
+        player.y = TILE_SIZE;
+        player.gridX = 1;
+        player.gridY = 1;
+      }
+      
+      // Level complete condition: if no destructible blocks remain.
+      let complete = true;
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (levelMap[r][c] === 2) { complete = false; break; }
+        }
+        if (!complete) break;
+      }
+      if (complete) {
+        level++;
+        score += 100; // bonus points
+        generateLevel();
+        spawnEnemies();
+      }
+    }
+    
+    function renderGame() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Draw the grid (level)
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          let x = c * TILE_SIZE;
+          let y = r * TILE_SIZE;
+          if (levelMap[r][c] === 1) {
+            ctx.fillStyle = "#333399";
+            ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+          } else if (levelMap[r][c] === 2) {
+            ctx.fillStyle = "#ff9933";
+            ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+          } else {
+            ctx.fillStyle = "#000";
+            ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+          }
+          ctx.strokeStyle = "#111";
+          ctx.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
+        }
+      }
+      // Draw bombs
+      bombs.forEach(bomb => {
+        ctx.fillStyle = "#ff0000";
+        ctx.beginPath();
+        ctx.arc(bomb.x + TILE_SIZE/2, bomb.y + TILE_SIZE/2, TILE_SIZE/3, 0, 2*Math.PI);
+        ctx.fill();
+      });
+      // Draw explosions
+      explosions.forEach(exp => {
+        exp.cells.forEach(cell => {
+          let x = cell.x * TILE_SIZE;
+          let y = cell.y * TILE_SIZE;
+          ctx.fillStyle = "rgba(255,255,0,0.7)";
+          ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+        });
+      });
+      // Draw player
+      ctx.fillStyle = "#00ccff";
+      ctx.beginPath();
+      ctx.arc(player.x + TILE_SIZE/2, player.y + TILE_SIZE/2, player.size/2, 0, 2*Math.PI);
+      ctx.fill();
+      // Draw enemies
+      enemies.forEach(enemy => {
+        ctx.fillStyle = "#ff00ff";
+        ctx.beginPath();
+        ctx.arc(enemy.x + TILE_SIZE/2, enemy.y + TILE_SIZE/2, TILE_SIZE/2 - 2, 0, 2*Math.PI);
+        ctx.fill();
+      });
+    }
+    
+    let lastTime = performance.now();
+    function gameLoop(timestamp) {
+      let dt = timestamp - lastTime;
+      lastTime = timestamp;
+      update(dt);
+      renderGame();
+      updateHUD();
+      if (player.lives <= 0) {
+        alert("Game Over! Your score: " + score);
+        newGame();
+        return;
+      }
+      requestAnimationFrame(gameLoop);
+    }
+    
+    function animateWheel() {
+      if (!spinning) return;
+      rotationAngle += spinVelocity;
+      spinVelocity *= 0.98;
+      if (spinVelocity < 0.001) {
+        spinning = false;
+        determineOutcome();
+      }
+      drawWheel();
+      requestAnimationFrame(animateWheel);
+    }
+    
+    function drawWheel() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (let i = 0; i < numPockets; i++) {
+        let startAngle = rotationAngle + i * segmentAngle;
+        let endAngle = startAngle + segmentAngle;
+        let pocket = rouletteOrder[i];
+        ctx.beginPath();
+        ctx.moveTo(wheelRadius, wheelRadius);
+        ctx.arc(wheelRadius, wheelRadius, wheelRadius, startAngle, endAngle);
+        ctx.closePath();
+        let fillCol = (pocket.color === "red") ? "#ff4444" : (pocket.color === "black") ? "#222222" : "#008800";
+        ctx.fillStyle = fillCol;
+        ctx.fill();
+        // Draw the pocket number
+        let textAngle = startAngle + segmentAngle/2;
+        let textRadius = wheelRadius * 0.7;
+        let x = wheelRadius + textRadius * Math.cos(textAngle);
+        let y = wheelRadius + textRadius * Math.sin(textAngle);
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(textAngle + Math.PI/2);
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 14px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(pocket.number, 0, 0);
+        ctx.restore();
+      }
+      // Draw pointer on the right edge (angle 0)
+      ctx.beginPath();
+      ctx.moveTo(canvas.width - 20, wheelRadius - 10);
+      ctx.lineTo(canvas.width - 20, wheelRadius + 10);
+      ctx.lineTo(canvas.width - 5, wheelRadius);
+      ctx.closePath();
+      ctx.fillStyle = "#ffff00";
+      ctx.fill();
+    }
+    
+    // Determine outcome using pointer at right (angle 0)
+    function determineOutcome() {
+      let finalAngle = (2*Math.PI - (rotationAngle % (2*Math.PI))) % (2*Math.PI);
+      let winningIndex = Math.floor(finalAngle / segmentAngle) % numPockets;
+      let winningPocket = rouletteOrder[winningIndex];
+      document.getElementById("resultDisplay").textContent =
+        `Result: ${winningPocket.number} (${winningPocket.color.toUpperCase()})`;
+      evaluateBets(winningPocket);
+    }
+    
+    function evaluateBets(wp) {
+      let totalWin = 0;
+      let totalBet = 0;
+      for (let key in bets.numbers) totalBet += Number(bets.numbers[key]);
+      for (let key in bets.color) totalBet += Number(bets.color[key]);
+      for (let key in bets.evenodd) totalBet += Number(bets.evenodd[key]);
+      if (bets.numbers[wp.number]) {
+        totalWin += bets.numbers[wp.number] * 35;
+      }
+      if (wp.number !== 0 && bets.color[wp.color]) {
+        totalWin += bets.color[wp.color];
+      }
+      if (wp.number !== 0) {
+        let oe = (wp.number % 2 === 0) ? "even" : "odd";
+        if (bets.evenodd[oe]) totalWin += bets.evenodd[oe];
+      }
+      if (totalWin > 0) {
+        bank += totalWin;
+        document.getElementById("resultDisplay").textContent += ` – You win $${totalWin}!`;
+      } else {
+        bank -= totalBet;
+        document.getElementById("resultDisplay").textContent += ` – You lose $${totalBet}.`;
+      }
+      updateBankDisplay();
+      resetBets();
+      updateHighScore();
+    }
+    
+    function newGame() {
+      score = 0;
+      level = 1;
+      player.lives = 3;
+      player.bombPower = 2;
+      player.maxBombs = 1;
+      player.bombsPlaced = 0;
+      player.gridX = 1; player.gridY = 1;
+      player.x = TILE_SIZE;
+      player.y = TILE_SIZE;
+      generateLevel();
+      spawnEnemies();
+      lastTime = performance.now();
+      requestAnimationFrame(gameLoop);
+    }
+    
+    // High Score Board functions
+    function updateHighScore() {
+      let playerName = document.getElementById("playerNameInput").value;
+      let entry = { name: playerName, bank: bank };
+      highScores.push(entry);
+      highScores.sort((a, b) => b.bank - a.bank);
+      highScores = highScores.slice(0, 5);
+      localStorage.setItem("rouletteHighScores", JSON.stringify(highScores));
+      renderHighScores();
+    }
+    
+    function renderHighScores() {
+      const tbody = document.getElementById("scoreboardBody");
+      tbody.innerHTML = "";
+      highScores.forEach(entry => {
+        let row = document.createElement("tr");
+        let nameCell = document.createElement("td");
+        nameCell.textContent = entry.name;
+        let bankCell = document.createElement("td");
+        bankCell.textContent = "$" + entry.bank;
+        row.appendChild(nameCell);
+        row.appendChild(bankCell);
+        tbody.appendChild(row);
+      });
+    }
+    
+    /*********************
+     * START GAME BUTTON HANDLING
+     *********************/
+    document.getElementById("startButton").addEventListener("click", function(){
+      document.getElementById("startScreen").style.display = "none";
+      newGame();
+      // Also, start the roulette wheel animation on its own if needed.
+    });
+    
+    /*********************
+     * GAME LOOP
+     *********************/
+    function gameLoop(timestamp) {
+      let dt = timestamp - lastTime;
+      lastTime = timestamp;
+      update(dt);
+      renderGame();
+      updateHUD();
+      if (player.lives <= 0) {
+        alert("Game Over! Your score: " + score);
+        newGame();
+        return;
+      }
+      requestAnimationFrame(gameLoop);
+    }
+    
+    function renderGame() {
+      // Render the Bomberman level on canvas.
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Draw level grid.
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          let x = c * TILE_SIZE;
+          let y = r * TILE_SIZE;
+          if (levelMap[r][c] === 1) { ctx.fillStyle = "#333399"; ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE); }
+          else if (levelMap[r][c] === 2) { ctx.fillStyle = "#ff9933"; ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE); }
+          else { ctx.fillStyle = "#000"; ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE); }
+          ctx.strokeStyle = "#111";
+          ctx.strokeRect(x, y, TILE_SIZE, TILE_SIZE);
+        }
+      }
+      // Draw bombs.
+      bombs.forEach(bomb => {
+        ctx.fillStyle = "#ff0000";
+        ctx.beginPath();
+        ctx.arc(bomb.x + TILE_SIZE/2, bomb.y + TILE_SIZE/2, TILE_SIZE/3, 0, Math.PI*2);
+        ctx.fill();
+      });
+      // Draw explosions.
+      explosions.forEach(exp => {
+        exp.cells.forEach(cell => {
+          let x = cell.x * TILE_SIZE;
+          let y = cell.y * TILE_SIZE;
+          ctx.fillStyle = "rgba(255,255,0,0.7)";
+          ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
+        });
+      });
+      // Draw player.
+      ctx.fillStyle = "#00ccff";
+      ctx.beginPath();
+      ctx.arc(player.x + TILE_SIZE/2, player.y + TILE_SIZE/2, player.size/2, 0, Math.PI*2);
+      ctx.fill();
+      // Draw enemies.
+      enemies.forEach(enemy => {
+        ctx.fillStyle = "#ff00ff";
+        ctx.beginPath();
+        ctx.arc(enemy.x + TILE_SIZE/2, enemy.y + TILE_SIZE/2, TILE_SIZE/2 - 2, 0, Math.PI*2);
+        ctx.fill();
+      });
+    }
+  </script>
+</body>
+</html>
