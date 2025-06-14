@@ -1,0 +1,76 @@
+/* ===== RESET & GLOBAL STYLES ===== */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      background: radial-gradient(circle, #001133, #000);
+      color: #eee;
+      font-family: 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      position: relative;
+      padding: 10px;
+    }
+    h1 { margin-bottom: 10px; text-shadow: 0 0 8px #ff00ff; }
+    #hud {
+      margin: 10px;
+      text-align: center;
+    }
+    #hud span {
+      margin: 0 10px;
+      font-size: 1.2em;
+      text-shadow: 0 0 5px #00ffff;
+    }
+    canvas {
+      background: #000;
+      border: 3px solid #00ffff;
+      image-rendering: pixelated;
+    }
+    /* ===== Start Screen Overlay ===== */
+    #startScreen {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.85);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 2;
+    }
+    #startScreen h1 {
+      font-size: 2.5em;
+      margin-bottom: 20px;
+      text-shadow: 0 0 10px #ff00ff;
+    }
+    #startButton {
+      padding: 10px 20px;
+      font-size: 1.2em;
+      cursor: pointer;
+      background: #28a745;
+      border: none;
+      border-radius: 5px;
+      color: #fff;
+      transition: background 0.3s;
+    }
+    #startButton:hover {
+      background: #218838;
+    }
+    /* ===== INSTRUCTIONS ===== */
+    #instructions {
+      margin-top: 10px;
+      text-align: center;
+    }
+    /* ===== RESPONSIVE ===== */
+    @media (max-width: 600px) {
+      #hud span { font-size: 1em; }
+      #startScreen h1 { font-size: 2em; }
+      #startButton { padding: 8px 16px; font-size: 1em; }
+    }
