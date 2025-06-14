@@ -5,6 +5,7 @@
 [![Made with CSS3](https://img.shields.io/badge/Made%20with-CSS3-1572B6?logo=css3)](https://www.w3.org/Style/CSS/)  
 [![Made with JavaScript](https://img.shields.io/badge/Made%20with-JavaScript-F7DF1E?logo=javascript)](https://developer.mozilla.org/docs/Web/JavaScript)  
 
+[Test Online](https://github.com/bocaletto-luca/Bomberman/index.html)
 ## Overview
 
 Bomberman Dynablaster – Single Player Edition is a modern, web-based remake of the classic Bomberman series with a twist inspired by the Italian *Dynablaster* variant. The game features dynamic grid‑based levels, bomb mechanics that allow for chain reactions, strategic power‑ups, and clever enemy AI – all wrapped up in a neon-retro, arcade aesthetic that works perfectly on both desktop and mobile browsers.
